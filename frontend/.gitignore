@@ -1,0 +1,37 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+env/
+ENV/
+*.pyd
+*.dll
+
+# Dependencies
+node_modules/
+package-lock.json
+
+# Database
+*.db
+*.sqlite3
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# System files
+.DS_Store
+Thumbs.db
+
+# Specific large files
+backend/venv/Lib/site-packages/cv2/cv2.pyd
+backend/venv/Lib/site-packages/mediapipe/python/opencv_world3410.dll
+backend/venv/Lib/site-packages/jaxlib/jax_common.dll
