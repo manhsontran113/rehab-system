@@ -94,6 +94,11 @@ export const Navbar = () => {
                 <Link to="/history" className={getLinkClasses('/history')}>
                   Lịch Sử
                 </Link>
+                {user.role === 'patient' && (
+                  <Link to="/profile" className={getLinkClasses('/profile')}>
+                    Thông Tin
+                  </Link>
+                )}
                 {user.role === 'doctor' && (
                   <Link to="/dashboard" className={getLinkClasses('/dashboard')}>
                     Dashboard

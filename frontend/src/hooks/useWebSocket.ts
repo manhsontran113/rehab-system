@@ -1,9 +1,16 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import type { AnalysisResult } from '../types';
 
+interface CustomThresholds {
+  down_angle?: number;
+  up_angle?: number;
+  max_reps?: number;
+}
+
 export const useWebSocket = (
   exerciseType: string,
-  isActive: boolean
+  isActive: boolean,
+  customThresholds?: CustomThresholds
 ) => {
   const [isConnected, setIsConnected] = useState(false);
   const [analysisData, setAnalysisData] = useState<AnalysisResult | null>(null);
@@ -18,6 +25,15 @@ export const useWebSocket = (
     ws.onopen = () => {
       console.log('WebSocket connected');
       setIsConnected(true);
+      
+      // Send custom thresholds if available
+      if (customThresholds) {
+        ws.send(JSON.stringify({
+          type: 'set_thresholds',
+          thresholds: customThresholds
+        }));
+        console.log('Sent custom thresholds:', customThresholds);
+      }
     };
 
     ws.onmessage = (event) => {
@@ -83,7 +99,7 @@ export const useWebSocket = (
     return () => {
       disconnect();
     };
-  }, [isActive, connect, disconnect]);
+  }, [isActive, connect, disconnect, customThresholds]);
 
   return {
     isConnected,

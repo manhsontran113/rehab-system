@@ -9,6 +9,7 @@ import { ExercisePage } from './pages/ExercisePage';
 import { PatientHistory } from './pages/PatientHistory';
 import { DoctorDashboard } from './pages/DoctorDashboard';
 import { PatientDetail } from './pages/PatientDetail';
+import { UserProfile } from './pages/UserProfile';
 
 function AppRoutes() {
   const { user, isLoading } = useAuth();
@@ -55,6 +56,14 @@ function AppRoutes() {
         element={
           <ProtectedRoute requiredRole="patient">
             <PatientHistory />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/profile"
+        element={
+          <ProtectedRoute requiredRole="patient">
+            <UserProfile />
           </ProtectedRoute>
         }
       />

@@ -1,6 +1,6 @@
 """
 AI Rehabilitation System V3 - Complete Backend
-With Authentication, Database, Session Management
+With Authentication, Database, Session Management, AI Personalization
 """
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
@@ -23,10 +23,16 @@ from enum import Enum
 from collections import deque
 import time
 
+# Import AI models
+from ai_models import PersonalizationEngine, BiometricFeatures
+
 # Config
 SECRET_KEY = "your-secret-key-change-in-production"
 ALGORITHM = "HS256"
 DB_PATH = Path("rehab_v3.db")
+
+# Initialize AI Personalization Engine
+personalization_engine = PersonalizationEngine()
 
 # Exercise name mapping (English to Vietnamese)
 EXERCISE_NAMES = {
@@ -83,7 +89,7 @@ mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5,
-    model_complexity=1
+    model_complexity=0
 )
 
 
@@ -105,7 +111,16 @@ def init_db():
             role TEXT NOT NULL CHECK(role IN ('patient', 'doctor')),
             full_name TEXT,
             age INTEGER,
-            gender TEXT,
+            gender TEXT CHECK(gender IN ('male', 'female', 'other')),
+            height_cm REAL,
+            weight_kg REAL,
+            bmi REAL,
+            medical_conditions TEXT,
+            injury_type TEXT,
+            mobility_level TEXT CHECK(mobility_level IN ('beginner', 'intermediate', 'advanced')),
+            pain_level INTEGER CHECK(pain_level BETWEEN 0 AND 10),
+            doctor_notes TEXT,
+            contraindicated_exercises TEXT,
             created_at TEXT NOT NULL,
             doctor_id INTEGER,
             FOREIGN KEY (doctor_id) REFERENCES users(id)
@@ -155,6 +170,24 @@ def init_db():
         )
     """)
     
+    # User exercise limits table (AI personalization)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS user_exercise_limits (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            exercise_type TEXT NOT NULL,
+            max_depth_angle REAL,
+            min_raise_angle REAL,
+            max_reps_per_set INTEGER,
+            recommended_rest_seconds INTEGER,
+            difficulty_score REAL,
+            injury_risk_score REAL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            FOREIGN KEY (user_id) REFERENCES users(id)
+        )
+    """)
+    
     conn.commit()
     
     # Create default users if not exist
@@ -201,6 +234,23 @@ class RegisterRequest(BaseModel):
     gender: Optional[str] = None
     role: str = 'patient'
     doctor_id: Optional[int] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    medical_conditions: Optional[str] = None
+    mobility_level: Optional[str] = 'beginner'
+    pain_level: Optional[int] = 0
+
+class UpdateProfileRequest(BaseModel):
+    age: Optional[int] = None
+    gender: Optional[str] = None
+    height_cm: Optional[float] = None
+    weight_kg: Optional[float] = None
+    medical_conditions: Optional[str] = None
+    mobility_level: Optional[str] = None
+    pain_level: Optional[int] = None
+
+class PersonalizedParamsRequest(BaseModel):
+    exercise_type: str
 
 
 # ============= AUTH FUNCTIONS =============
@@ -1411,6 +1461,168 @@ async def get_patient_error_analytics(patient_id: int, current_user = Depends(ge
     return {'analytics': result}
 
 
+# ============= AI PERSONALIZATION ENDPOINTS =============
+
+@app.post("/api/profile/update")
+async def update_profile(
+    request: UpdateProfileRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    """Update user profile with biometric and medical data"""
+    token_data = verify_token(credentials)
+    user_id = token_data['user_id']
+    
+    conn = sqlite3.connect(DB_PATH)
+    cursor = conn.cursor()
+    
+    # Calculate BMI if height and weight provided
+    bmi = None
+    if request.height_cm and request.weight_kg:
+        bmi = request.weight_kg / ((request.height_cm / 100) ** 2)
+    
+    # Update user profile
+    update_fields = []
+    update_values = []
+    
+    if request.age is not None:
+        update_fields.append("age = ?")
+        update_values.append(request.age)
+    
+    if request.gender:
+        update_fields.append("gender = ?")
+        update_values.append(request.gender)
+    
+    if request.height_cm is not None:
+        update_fields.append("height_cm = ?")
+        update_values.append(request.height_cm)
+    
+    if request.weight_kg is not None:
+        update_fields.append("weight_kg = ?")
+        update_values.append(request.weight_kg)
+    
+    if bmi is not None:
+        update_fields.append("bmi = ?")
+        update_values.append(bmi)
+    
+    if request.medical_conditions is not None:
+        update_fields.append("medical_conditions = ?")
+        update_values.append(request.medical_conditions)
+    
+    if request.mobility_level:
+        update_fields.append("mobility_level = ?")
+        update_values.append(request.mobility_level)
+    
+    if request.pain_level is not None:
+        update_fields.append("pain_level = ?")
+        update_values.append(request.pain_level)
+    
+    if update_fields:
+        update_values.append(user_id)
+        query = f"UPDATE users SET {', '.join(update_fields)} WHERE id = ?"
+        cursor.execute(query, update_values)
+        conn.commit()
+    
+    conn.close()
+    
+    return {
+        'success': True,
+        'message': 'Profile updated successfully',
+        'bmi': round(bmi, 1) if bmi else None
+    }
+
+
+@app.get("/api/profile/me")
+async def get_my_profile(credentials: HTTPAuthorizationCredentials = Depends(security)):
+    """Get current user's profile"""
+    token_data = verify_token(credentials)
+    user_id = token_data['user_id']
+    
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT id, username, full_name, age, gender, height_cm, weight_kg, bmi,
+               medical_conditions, injury_type, mobility_level, pain_level, 
+               doctor_notes, contraindicated_exercises, role
+        FROM users
+        WHERE id = ?
+    """, (user_id,))
+    
+    user = cursor.fetchone()
+    conn.close()
+    
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    return dict(user)
+
+
+@app.post("/api/personalized-params")
+async def get_personalized_params(
+    request: PersonalizedParamsRequest,
+    credentials: HTTPAuthorizationCredentials = Depends(security)
+):
+    """
+    Get personalized exercise parameters based on user profile
+    
+    Returns customized angles, reps, rest time, warnings, and recommendations
+    """
+    token_data = verify_token(credentials)
+    user_id = token_data['user_id']
+    
+    # Get user data
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        SELECT age, gender, height_cm, weight_kg, bmi, medical_conditions,
+               injury_type, mobility_level, pain_level
+        FROM users
+        WHERE id = ?
+    """, (user_id,))
+    
+    user_row = cursor.fetchone()
+    
+    if not user_row:
+        conn.close()
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user_data = dict(user_row)
+    
+    # Calculate personalized parameters using AI engine
+    params = personalization_engine.calculate_personalized_params(
+        user_data,
+        request.exercise_type
+    )
+    
+    # Save to database
+    cursor.execute("""
+        INSERT OR REPLACE INTO user_exercise_limits
+        (user_id, exercise_type, max_depth_angle, min_raise_angle,
+         max_reps_per_set, recommended_rest_seconds, difficulty_score,
+         injury_risk_score, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        user_id,
+        request.exercise_type,
+        params.get('down_angle'),
+        params.get('up_angle'),
+        params.get('max_reps'),
+        params.get('rest_seconds'),
+        params.get('difficulty_score'),
+        0.0,  # injury_risk_score - will implement later
+        datetime.now().isoformat(),
+        datetime.now().isoformat()
+    ))
+    
+    conn.commit()
+    conn.close()
+    
+    return params
+
+
 @app.websocket("/ws/exercise/{exercise_type}")
 async def websocket_endpoint(websocket: WebSocket, exercise_type: str):
     await websocket.accept()
@@ -1428,6 +1640,30 @@ async def websocket_endpoint(websocket: WebSocket, exercise_type: str):
         while True:
             data = await websocket.receive_text()
             message = json.loads(data)
+            
+            # ✅ NEW: Handle custom thresholds
+            if message['type'] == 'set_thresholds':
+                thresholds = message.get('thresholds', {})
+                print(f"🎯 Received custom thresholds: {thresholds}")
+                
+                # Apply custom thresholds to rep_counter
+                if 'down_angle' in thresholds and thresholds['down_angle']:
+                    if exercise_type == 'squat':
+                        rep_counter.down_threshold = thresholds['down_angle']
+                        print(f"   Squat down_threshold: {rep_counter.down_threshold}°")
+                    elif exercise_type == 'arm_raise':
+                        rep_counter.down_threshold = thresholds['down_angle']
+                        print(f"   Arm raise down_threshold: {rep_counter.down_threshold}°")
+                
+                if 'up_angle' in thresholds and thresholds['up_angle']:
+                    if exercise_type == 'squat':
+                        rep_counter.up_threshold = thresholds['up_angle']
+                        print(f"   Squat up_threshold: {rep_counter.up_threshold}°")
+                    elif exercise_type == 'arm_raise':
+                        rep_counter.up_threshold = thresholds['up_angle']
+                        print(f"   Arm raise up_threshold: {rep_counter.up_threshold}°")
+                
+                continue
             
             if message['type'] == 'frame':
                 current_time = time.time()

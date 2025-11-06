@@ -6,6 +6,17 @@ import { exerciseAPI, sessionAPI } from '../utils/api';
 import type { Exercise } from '../utils/types';
 import { AngleDisplay } from '../components/AngleDisplay';
 import { Navbar } from '../components/Navbar';
+import { RelaxationPopup } from '../components/RelaxationPopup';
+
+interface PersonalizedParams {
+  down_angle?: number;
+  up_angle?: number;
+  max_reps?: number;
+  rest_seconds: number;
+  difficulty_score: number;
+  warnings: string[];
+  recommendations: string[];
+}
 
 export const ExercisePage = () => {
   const navigate = useNavigate();
@@ -17,15 +28,32 @@ export const ExercisePage = () => {
   const [sessionSummary, setSessionSummary] = useState<any>(null);
   const [remainingTime, setRemainingTime] = useState<number>(0);
   const [completionStatus, setCompletionStatus] = useState<'completed' | 'timeout' | null>(null);
+  const [personalizedParams, setPersonalizedParams] = useState<PersonalizedParams | null>(null);
+  const [loadingParams, setLoadingParams] = useState(false);
+  const [showRelaxation, setShowRelaxation] = useState(false);
+
+  // Prepare custom thresholds for WebSocket
+  const customThresholds = personalizedParams ? {
+    down_angle: personalizedParams.down_angle,
+    up_angle: personalizedParams.up_angle,
+    max_reps: personalizedParams.max_reps
+  } : undefined;
 
   const { isConnected, analysisData, sendFrame, resetCounter } = useWebSocket(
     selectedExercise || 'squat',
-    isExercising
+    isExercising,
+    customThresholds
   );
 
   useEffect(() => {
     loadExercises();
   }, []);
+
+  useEffect(() => {
+    if (selectedExercise) {
+      loadPersonalizedParams();
+    }
+  }, [selectedExercise]);
 
   const loadExercises = async () => {
     try {
@@ -36,6 +64,36 @@ export const ExercisePage = () => {
       }
     } catch (error) {
       console.error('Failed to load exercises:', error);
+    }
+  };
+
+  const loadPersonalizedParams = async () => {
+    if (!selectedExercise) return;
+    
+    setLoadingParams(true);
+    try {
+      const token = localStorage.getItem('token');
+      const response = await fetch('http://localhost:8000/api/personalized-params', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ exercise_type: selectedExercise })
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        setPersonalizedParams(data);
+      } else {
+        // If profile not set, params will be null
+        setPersonalizedParams(null);
+      }
+    } catch (error) {
+      console.error('Failed to load personalized params:', error);
+      setPersonalizedParams(null);
+    } finally {
+      setLoadingParams(false);
     }
   };
 
@@ -66,6 +124,8 @@ export const ExercisePage = () => {
         // Determine completion status
         if (status === 'completed') {
           setCompletionStatus('completed');
+          // Show relaxation popup after completing exercise
+          setShowRelaxation(true);
         } else if (status === 'timeout') {
           setCompletionStatus('timeout');
         } else {
@@ -73,6 +133,11 @@ export const ExercisePage = () => {
           const targetReached = currentExercise && analysisData?.rep_count &&
                                 analysisData.rep_count >= currentExercise.target_reps;
           setCompletionStatus(targetReached ? 'completed' : 'timeout');
+          
+          // Show relaxation if target reached
+          if (targetReached) {
+            setShowRelaxation(true);
+          }
         }
 
         setShowSummary(true);
@@ -87,6 +152,9 @@ export const ExercisePage = () => {
   };
 
   const currentExercise = exercises.find((ex) => ex.id === selectedExercise);
+
+  // Use personalized reps if available, otherwise use default
+  const targetReps = personalizedParams?.max_reps || currentExercise?.target_reps || 15;
 
   // Timer countdown effect
   useEffect(() => {
@@ -108,9 +176,9 @@ export const ExercisePage = () => {
 
   // Auto-complete when target reps reached
   useEffect(() => {
-    if (!isExercising || !currentExercise || !analysisData?.rep_count) return;
+    if (!isExercising || !analysisData?.rep_count) return;
 
-    if (analysisData.rep_count >= currentExercise.target_reps) {
+    if (analysisData.rep_count >= targetReps) {
       // Completed! Auto stop after a short delay
       const timeout = setTimeout(() => {
         handleStop('completed');
@@ -118,7 +186,7 @@ export const ExercisePage = () => {
 
       return () => clearTimeout(timeout);
     }
-  }, [isExercising, currentExercise, analysisData?.rep_count]);
+  }, [isExercising, analysisData?.rep_count, targetReps]);
 
   // Exercise details and instructions
   const exerciseDetails: Record<string, { difficulty: string; description: string; instructions: string[] }> = {
@@ -187,7 +255,7 @@ export const ExercisePage = () => {
                 <div className="flex items-center justify-between">
                   <div className="flex-1">
                     <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Tiến độ bài tập</h2>
-                    <p className="text-gray-600 dark:text-gray-400">Mục tiêu: {currentExercise?.target_reps || 15} lần trong {currentExercise?.duration_seconds ? Math.floor(currentExercise.duration_seconds / 60) : 3} phút</p>
+                    <p className="text-gray-600 dark:text-gray-400">Mục tiêu: {targetReps} lần trong {currentExercise?.duration_seconds ? Math.floor(currentExercise.duration_seconds / 60) : 3} phút</p>
                   </div>
                   <div className="flex gap-4">
                     {/* Timer display */}
@@ -207,12 +275,12 @@ export const ExercisePage = () => {
                     )}
                     {/* Rep counter */}
                     <div className={`px-8 py-4 rounded-xl border-2 ${
-                      isExercising && analysisData?.rep_count && currentExercise && analysisData.rep_count >= currentExercise.target_reps
+                      isExercising && analysisData?.rep_count && analysisData.rep_count >= targetReps
                         ? 'bg-gradient-to-br from-green-600 to-green-700 border-green-500'
                         : 'bg-gradient-to-br from-teal-600 to-cyan-600 border-teal-500'
                     } text-white shadow-lg`}>
                       <div className="text-4xl font-bold mb-1">
-                        {isExercising ? analysisData?.rep_count || 0 : 0} / {currentExercise?.target_reps || 15}
+                        {isExercising ? analysisData?.rep_count || 0 : 0} / {targetReps}
                       </div>
                       <div className="text-center opacity-90">Lần lặp</div>
                     </div>
@@ -238,14 +306,14 @@ export const ExercisePage = () => {
                   landmarks={analysisData?.landmarks}
                   feedback={analysisData?.feedback}
                   repCount={analysisData?.rep_count}
-                  targetReps={currentExercise?.target_reps}
+                  targetReps={targetReps}
                   remainingTime={remainingTime}
                   analysisData={{
                     hold_time_remaining: analysisData?.hold_time_remaining,
                     rep_count: analysisData?.rep_count
                   }}
                   currentExercise={{
-                    target_reps: currentExercise?.target_reps || 10
+                    target_reps: targetReps
                   }}
                 />
                 ) : (
@@ -385,6 +453,107 @@ export const ExercisePage = () => {
                     );
                   })}
                 </div>
+
+                {/* Personalized Parameters Card */}
+                {personalizedParams && (
+                  <div className="mt-6 bg-gradient-to-br from-blue-900/30 to-purple-900/30 border border-blue-500/30 rounded-xl p-5 shadow-lg">
+                    <div className="flex items-center gap-2 mb-4">
+                      <span className="text-2xl">🎯</span>
+                      <h3 className="text-xl font-bold text-white">Tùy Chỉnh Cá Nhân</h3>
+                    </div>
+
+                    {/* Difficulty Score */}
+                    <div className="mb-4 p-3 bg-black/30 rounded-lg">
+                      <div className="flex items-center justify-between mb-2">
+                        <span className="text-sm text-gray-300">Độ khó phù hợp:</span>
+                        <span className="text-lg font-bold text-teal-400">
+                          {Math.round(personalizedParams.difficulty_score * 100)}%
+                        </span>
+                      </div>
+                      <div className="w-full bg-gray-700 rounded-full h-2">
+                        <div 
+                          className="bg-gradient-to-r from-teal-500 to-cyan-500 h-2 rounded-full transition-all duration-500"
+                          style={{ width: `${personalizedParams.difficulty_score * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+
+                    {/* Parameters */}
+                    <div className="space-y-2 mb-4">
+                      {personalizedParams.down_angle && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-300">📐 Góc mục tiêu:</span>
+                          <span className="font-semibold text-white">
+                            {Math.round(personalizedParams.down_angle)}° - {Math.round(personalizedParams.up_angle || 180)}°
+                          </span>
+                        </div>
+                      )}
+                      {personalizedParams.max_reps && (
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="text-gray-300">🔢 Số rep khuyến nghị:</span>
+                          <span className="font-semibold text-white">{personalizedParams.max_reps} lần</span>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-gray-300">⏱️ Thời gian nghỉ:</span>
+                        <span className="font-semibold text-white">{personalizedParams.rest_seconds}s</span>
+                      </div>
+                    </div>
+
+                    {/* Warnings */}
+                    {personalizedParams.warnings.length > 0 && (
+                      <div className="mb-3 p-3 bg-orange-900/30 border border-orange-500/30 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-lg">⚠️</span>
+                          <span className="font-semibold text-orange-300 text-sm">Lưu ý:</span>
+                        </div>
+                        <ul className="space-y-1 text-xs text-orange-200">
+                          {personalizedParams.warnings.map((warning, idx) => (
+                            <li key={idx}>• {warning}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+
+                    {/* Recommendations */}
+                    {personalizedParams.recommendations.length > 0 && (
+                      <div className="p-3 bg-green-900/30 border border-green-500/30 rounded-lg">
+                        <div className="flex items-center gap-2 mb-2">
+                          <span className="text-lg">💡</span>
+                          <span className="font-semibold text-green-300 text-sm">Gợi ý:</span>
+                        </div>
+                        <ul className="space-y-1 text-xs text-green-200">
+                          {personalizedParams.recommendations.map((rec, idx) => (
+                            <li key={idx}>• {rec}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Profile prompt if no personalized params */}
+                {!loadingParams && !personalizedParams && (
+                  <div className="mt-6 p-4 bg-yellow-900/20 border border-yellow-500/30 rounded-xl">
+                    <div className="flex items-start gap-3">
+                      <span className="text-2xl">👤</span>
+                      <div>
+                        <p className="text-sm text-yellow-200 font-semibold mb-1">
+                          Chưa có thông tin cá nhân
+                        </p>
+                        <p className="text-xs text-yellow-300/80 mb-3">
+                          Điền thông tin để nhận bài tập phù hợp với bạn
+                        </p>
+                        <button
+                          onClick={() => navigate('/profile')}
+                          className="text-xs bg-yellow-600 hover:bg-yellow-700 text-white px-3 py-1.5 rounded-lg transition"
+                        >
+                          Điền thông tin →
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
               <AngleDisplay 
                 angles={analysisData?.angles} 
@@ -483,6 +652,19 @@ export const ExercisePage = () => {
             </div>
           </div>
         )}
+
+        {/* Relaxation Popup - Shows after completing exercise */}
+        <RelaxationPopup
+          isOpen={showRelaxation}
+          onClose={() => {
+            setShowRelaxation(false);
+            // Auto show summary after relaxation
+            if (!showSummary) {
+              setShowSummary(true);
+            }
+          }}
+          duration={180} // 3 minutes = 180 seconds
+        />
 
         {/* Footer - Dark Theme */}
         <footer className="bg-black border-t border-gray-900 mt-12 py-8">
