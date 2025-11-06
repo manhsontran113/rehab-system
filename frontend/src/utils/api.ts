@@ -1,5 +1,5 @@
 import axios from 'axios';
-import type { LoginResponse, Exercise, Session, Patient } from '../types';
+import type { LoginResponse, Exercise, Session, Patient, ErrorAnalyticsResponse } from './types';
 
 const API_URL = 'http://localhost:8000/api';
 
@@ -74,6 +74,11 @@ export const sessionAPI = {
     });
     return response.data;
   },
+
+  async getErrorAnalytics(): Promise<ErrorAnalyticsResponse> {
+    const response = await api.get('/sessions/error-analytics');
+    return response.data;
+  },
 };
 
 // ============= DOCTOR APIs =============
@@ -91,6 +96,11 @@ export const doctorAPI = {
     const response = await api.get(`/doctor/patient/${patientId}/history`, {
       params: { limit },
     });
+    return response.data;
+  },
+
+  async getPatientErrorAnalytics(patientId: number): Promise<ErrorAnalyticsResponse> {
+    const response = await api.get(`/doctor/patient/${patientId}/error-analytics`);
     return response.data;
   },
 };

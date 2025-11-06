@@ -21,6 +21,7 @@ export interface Exercise {
   name: string;
   description: string;
   target_reps: number;
+  duration_seconds: number;
 }
 
 // ============= Pose Detection Types =============
@@ -102,4 +103,22 @@ export interface ChartDataPoint {
   date: string;
   accuracy: number;
   reps: number;
+}
+
+// ============= Error Analytics Types =============
+
+export interface ErrorAnalytics {
+  error_name: string;
+  total_count: number;
+  session_count: number;
+  avg_per_session: number;
+}
+
+export interface ExerciseErrorAnalytics {
+  exercise_name: string;
+  errors: ErrorAnalytics[];
+}
+
+export interface ErrorAnalyticsResponse {
+  analytics: ExerciseErrorAnalytics[];
 }

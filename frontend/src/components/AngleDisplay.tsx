@@ -53,8 +53,12 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
         { key: 'left_knee', label: 'Gối trái', target: 90, direction: 'down' },
         { key: 'right_knee', label: 'Gối phải', target: 90, direction: 'down' }
     );
-    }
-
+  } else if (exerciseType === 'calf_raise') {
+    angleConfigs.push(
+        { key: 'left_ankle', label: 'Mắt cá trái', target: 140, direction: 'up' },
+        { key: 'right_ankle', label: 'Mắt cá phải', target: 140, direction: 'up' }
+    );
+  }
   return (
     <div className="bg-white rounded-lg p-6 shadow-md">
       <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
@@ -131,6 +135,8 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
                 ? 'Gập gối xuống sâu, giữ lưng thẳng'
                 : exerciseType === 'single_leg_stand'
                 ? 'Nâng đầu gối cao, giữ thăng bằng, nhìn thẳng phía trước'
+                : exerciseType === 'calf_raise'  // ✅ THÊM MỚI
+                ? 'Nâng gót cao lên, giữ chân thẳng, hạ từ từ'
                 : ''
                 }
             </p>

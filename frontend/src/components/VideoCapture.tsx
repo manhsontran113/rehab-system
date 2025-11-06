@@ -6,9 +6,12 @@ interface VideoCaptureProps {
   onFrame: (frameData: string) => void;
   landmarks?: Landmark[];
   feedback?: string;
+  repCount?: number;
+  targetReps?: number;
+  remainingTime?: number;
   analysisData?: {
-  hold_time_remaining?: number;
-  rep_count?: number;
+    hold_time_remaining?: number;
+    rep_count?: number;
   };
   currentExercise?: {
     target_reps: number;
@@ -20,6 +23,9 @@ export const VideoCapture = ({
   onFrame,
   landmarks,
   feedback,
+  repCount,
+  targetReps,
+  remainingTime,
   analysisData,
   currentExercise,
 }: VideoCaptureProps) => {
@@ -199,30 +205,6 @@ useEffect(() => {
       <div className="absolute top-4 left-4 right-4">
         <div className="bg-black bg-opacity-70 text-white px-6 py-4 rounded-lg">
           <p className="text-2xl font-bold">{feedback || 'Sẵn sàng...'}</p>
-        </div>
-      </div>
-
-            {/* Rep counter or Hold timer */}
-
-      <div className="absolute bottom-4 right-4">
-        <div className="bg-teal-600 text-white px-8 py-6 rounded-lg shadow-lg">
-          {analysisData?.hold_time_remaining !== undefined && analysisData.hold_time_remaining !== null ? (
-            // ✅ HOLDING state - show countdown
-            <>
-              <p className="text-xl font-semibold">Giữ vững!</p>
-              <p className="text-6xl font-bold">
-                {Math.ceil(analysisData.hold_time_remaining)}s
-              </p>
-            </>
-          ) : (
-            // Normal rep counter
-            <>
-              <p className="text-xl font-semibold">Số lần</p>
-              <p className="text-5xl font-bold">
-                {analysisData?.rep_count || 0} / {currentExercise?.target_reps || 10}
-              </p>
-            </>
-          )}
         </div>
       </div>
     </div>

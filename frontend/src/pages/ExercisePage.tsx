@@ -1,21 +1,22 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { VideoCapture } from '../components/VideoCapture';
 import { useWebSocket } from '../hooks/useWebSocket';
 import { exerciseAPI, sessionAPI } from '../utils/api';
-import { useAuth } from '../context/AuthContext';
-import type { Exercise } from '../types';
+import type { Exercise } from '../utils/types';
 import { AngleDisplay } from '../components/AngleDisplay';
+import { Navbar } from '../components/Navbar';
 
 export const ExercisePage = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
   const [exercises, setExercises] = useState<Exercise[]>([]);
   const [selectedExercise, setSelectedExercise] = useState<string | null>(null);
   const [isExercising, setIsExercising] = useState(false);
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [showSummary, setShowSummary] = useState(false);
   const [sessionSummary, setSessionSummary] = useState<any>(null);
+  const [remainingTime, setRemainingTime] = useState<number>(0);
+  const [completionStatus, setCompletionStatus] = useState<'completed' | 'timeout' | null>(null);
 
   const { isConnected, analysisData, sendFrame, resetCounter } = useWebSocket(
     selectedExercise || 'squat',
@@ -39,26 +40,41 @@ export const ExercisePage = () => {
   };
 
   const handleStart = async () => {
-    if (!selectedExercise) return;
+    if (!selectedExercise || !currentExercise) return;
 
     try {
       const result = await sessionAPI.startSession(selectedExercise);
       setSessionId(result.session_id);
       setIsExercising(true);
       setShowSummary(false);
+      setCompletionStatus(null);
+      setRemainingTime(currentExercise.duration_seconds);
     } catch (error) {
       console.error('Failed to start session:', error);
       alert('Không thể bắt đầu buổi tập. Vui lòng thử lại.');
     }
   };
 
-  const handleStop = async () => {
+  const handleStop = async (status: 'completed' | 'timeout' | 'manual' = 'manual') => {
     setIsExercising(false);
 
     if (sessionId) {
       try {
         const result = await sessionAPI.endSession(sessionId);
         setSessionSummary(result);
+
+        // Determine completion status
+        if (status === 'completed') {
+          setCompletionStatus('completed');
+        } else if (status === 'timeout') {
+          setCompletionStatus('timeout');
+        } else {
+          // Manual stop - check if target was reached
+          const targetReached = currentExercise && analysisData?.rep_count &&
+                                analysisData.rep_count >= currentExercise.target_reps;
+          setCompletionStatus(targetReached ? 'completed' : 'timeout');
+        }
+
         setShowSummary(true);
       } catch (error) {
         console.error('Failed to end session:', error);
@@ -71,6 +87,38 @@ export const ExercisePage = () => {
   };
 
   const currentExercise = exercises.find((ex) => ex.id === selectedExercise);
+
+  // Timer countdown effect
+  useEffect(() => {
+    if (!isExercising || remainingTime <= 0) return;
+
+    const timer = setInterval(() => {
+      setRemainingTime((prev) => {
+        if (prev <= 1) {
+          // Time's up! Auto stop with timeout status
+          handleStop('timeout');
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [isExercising, remainingTime]);
+
+  // Auto-complete when target reps reached
+  useEffect(() => {
+    if (!isExercising || !currentExercise || !analysisData?.rep_count) return;
+
+    if (analysisData.rep_count >= currentExercise.target_reps) {
+      // Completed! Auto stop after a short delay
+      const timeout = setTimeout(() => {
+        handleStop('completed');
+      }, 2000); // 2 second delay to show completion
+
+      return () => clearTimeout(timeout);
+    }
+  }, [isExercising, currentExercise, analysisData?.rep_count]);
 
   // Exercise details and instructions
   const exerciseDetails: Record<string, { difficulty: string; description: string; instructions: string[] }> = {
@@ -108,89 +156,73 @@ export const ExercisePage = () => {
         'Tay phải giữ chân phải, giữ 10 giây',
       ],
     },
-  };
-
-  const getDifficultyColor = (difficulty: string) => {
-    if (difficulty === 'Dễ') return 'text-green-600 bg-green-50';
-    if (difficulty === 'Trung bình') return 'text-yellow-600 bg-yellow-50';
-    return 'text-red-600 bg-red-50';
+    // ✅ THÊM MỚI
+    calf_raise: {
+        difficulty: 'Dễ',
+        description: 'Bài tập tăng cường cơ bắp chân',
+        instructions: [
+            'Đứng thẳng, hai chân rộng bằng vai',
+            'Tay có thể đỡ vào tường để giữ thăng bằng',
+            'Từ từ nâng gót lên cao (đứng bằng mũi chân)',
+            'Giữ 1-2 giây ở trên',
+            'Từ từ hạ gót xuống về tư thế ban đầu',
+            'Lặp lại động tác',
+        ],
+    },
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navbar */}
-      <nav className="bg-white shadow-md sticky top-0 z-50 border-b-4 border-teal-600">
-      <div className="max-w-7xl mx-auto px-6 py-4">
-        <div className="flex justify-between items-center">
-          <Link to="/" className="flex items-center space-x-3">
-            <div className="bg-teal-600 text-white p-2 rounded-lg">
-              <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
-              </svg>
-            </div>
-            <span className="text-2xl font-bold text-gray-800">Rehab System</span>
-          </Link>
-          
-          <div className="flex space-x-6 text-lg">
-            <Link
-              to="/"
-              className="text-gray-600 hover:text-teal-600 flex items-center gap-2 transition"
-            >
-              🏠 Trang Chủ
-            </Link>
-            <Link
-              to="/exercise"
-              className="text-white bg-teal-600 px-4 py-2 rounded-lg font-semibold flex items-center gap-2"
-            >
-              💪 Bài Tập
-            </Link>
-            <Link
-              to="/history"
-              className="text-gray-600 hover:text-teal-600 flex items-center gap-2 transition"
-            >
-              📖 Lịch Sử
-            </Link>
-          </div>
+    <>
+      <Navbar />
+      <div className="min-h-screen bg-white dark:bg-black text-gray-900 dark:text-white transition-colors duration-300">
 
-          <button
-            onClick={() => {
-              logout();
-              navigate('/');
-            }}
-            className="text-gray-600 hover:text-red-600 font-semibold text-lg transition"
-          >
-            Đăng Xuất
-          </button>
-        </div>
-      </div>
-    </nav>
-
-      {!showSummary ? (
-        <div className="max-w-7xl mx-auto p-6">
-          <h1 className="text-4xl font-bold text-gray-900 mb-6">Bài Tập</h1>
+      <div className="max-w-7xl mx-auto p-6">
+        <h1 className="text-5xl font-black text-gray-900 dark:text-white mb-8 bg-gradient-to-r from-teal-500 to-cyan-500 dark:from-teal-400 dark:to-cyan-400 bg-clip-text text-transparent">Bài Tập Phục Hồi</h1>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left: Video Area */}
             <div className="lg:col-span-2 space-y-4">
               {/* Exercise Progress Section */}
-              <div className="bg-white rounded-lg p-6 shadow-md mb-6">
+              <div className="bg-white dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl mb-6 transition-colors duration-300">
                 <div className="flex items-center justify-between">
-                  <div>
-                    <h2 className="text-2xl font-bold text-gray-800">Tiến độ bài tập</h2>
-                    <p className="text-gray-600">Mục tiêu: {currentExercise?.target_reps || 15} lần</p>
+                  <div className="flex-1">
+                    <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">Tiến độ bài tập</h2>
+                    <p className="text-gray-600 dark:text-gray-400">Mục tiêu: {currentExercise?.target_reps || 15} lần trong {currentExercise?.duration_seconds ? Math.floor(currentExercise.duration_seconds / 60) : 3} phút</p>
                   </div>
-                  <div className="bg-teal-600 text-white px-8 py-4 rounded-lg">
-                    <div className="text-4xl font-bold mb-1">
-                      {isExercising ? analysisData?.rep_count || 0 : 0} / {currentExercise?.target_reps || 15}
+                  <div className="flex gap-4">
+                    {/* Timer display */}
+                    {isExercising && remainingTime > 0 && (
+                      <div className={`px-6 py-4 rounded-xl border-2 ${
+                        remainingTime <= 10
+                          ? 'bg-red-600 border-red-500'
+                          : remainingTime <= 30
+                          ? 'bg-orange-600 border-orange-500'
+                          : 'bg-gradient-to-br from-blue-600 to-blue-700 border-blue-500'
+                      } text-white shadow-lg`}>
+                        <div className="text-3xl font-bold mb-1">
+                          {Math.floor(remainingTime / 60)}:{(remainingTime % 60).toString().padStart(2, '0')}
+                        </div>
+                        <div className="text-center text-sm opacity-90">Thời gian</div>
+                      </div>
+                    )}
+                    {/* Rep counter */}
+                    <div className={`px-8 py-4 rounded-xl border-2 ${
+                      isExercising && analysisData?.rep_count && currentExercise && analysisData.rep_count >= currentExercise.target_reps
+                        ? 'bg-gradient-to-br from-green-600 to-green-700 border-green-500'
+                        : 'bg-gradient-to-br from-teal-600 to-cyan-600 border-teal-500'
+                    } text-white shadow-lg`}>
+                      <div className="text-4xl font-bold mb-1">
+                        {isExercising ? analysisData?.rep_count || 0 : 0} / {currentExercise?.target_reps || 15}
+                      </div>
+                      <div className="text-center opacity-90">Lần lặp</div>
                     </div>
-                    <div className="text-center text-teal-100">Lần lặp</div>
                   </div>
                 </div>
                 
                 {isExercising && (
                   <div className="mt-4 flex items-center">
                     <div className={`w-3 h-3 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'} animate-pulse mr-2`}></div>
-                    <span className="text-sm text-gray-600">
+                    <span className="text-sm text-gray-600 dark:text-gray-400">
                       {isConnected ? 'Đang kết nối' : 'Mất kết nối'}
                     </span>
                   </div>
@@ -198,13 +230,16 @@ export const ExercisePage = () => {
               </div>
 
               {/* Main Video Display */}
-              <div className="bg-gray-900 rounded-lg overflow-hidden relative" style={{ aspectRatio: '16/9' }}>
+              <div className="bg-gray-200 dark:bg-gray-900 rounded-lg overflow-hidden relative transition-colors duration-300" style={{ aspectRatio: '16/9' }}>
                 {isExercising ? (
                 <VideoCapture
                   isActive={isExercising}
                   onFrame={sendFrame}
                   landmarks={analysisData?.landmarks}
                   feedback={analysisData?.feedback}
+                  repCount={analysisData?.rep_count}
+                  targetReps={currentExercise?.target_reps}
+                  remainingTime={remainingTime}
                   analysisData={{
                     hold_time_remaining: analysisData?.hold_time_remaining,
                     rep_count: analysisData?.rep_count
@@ -217,22 +252,23 @@ export const ExercisePage = () => {
                   <div className="w-full h-full flex items-center justify-center">
                     <div className="text-center">
                       <div className="text-6xl mb-4">📹</div>
-                      <p className="text-2xl text-gray-400 mb-2">Camera sẽ bật khi bạn bắt đầu</p>
-                      <p className="text-lg text-gray-500">Đảm bảo có đủ ánh sáng và không gian</p>
+                      <p className="text-2xl text-gray-600 dark:text-gray-400 mb-2">Camera sẽ bật khi bạn bắt đầu</p>
+                      <p className="text-lg text-gray-500 dark:text-gray-500">Đảm bảo có đủ ánh sáng và không gian</p>
                     </div>
                   </div>
                 )}
               </div>
 
+
               {/* Control Button */}
               <button
-                onClick={isExercising ? handleStop : handleStart}
+                onClick={isExercising ? () => handleStop('manual') : handleStart}
                 disabled={!selectedExercise}
-                className={`w-full py-6 rounded-lg font-bold text-2xl transition shadow-lg ${
+                className={`w-full py-6 rounded-xl font-bold text-2xl transition shadow-2xl ${
                   isExercising
-                    ? 'bg-red-600 hover:bg-red-700 text-white'
-                    : 'bg-teal-600 hover:bg-teal-700 text-white'
-                } disabled:opacity-50 disabled:cursor-not-allowed`}
+                    ? 'bg-gradient-to-r from-red-600 to-red-700 hover:from-red-700 hover:to-red-800 text-white shadow-red-500/50'
+                    : 'bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white shadow-teal-500/50'
+                } disabled:opacity-50 disabled:cursor-not-allowed transform hover:scale-105`}
               >
                 {isExercising ? '⏹ Dừng Lại' : '▶ Bắt Đầu'}
               </button>
@@ -240,7 +276,7 @@ export const ExercisePage = () => {
               {isExercising && (
                 <button
                   onClick={handleReset}
-                  className="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-4 rounded-lg text-xl transition"
+                  className="w-full bg-gray-200 dark:bg-gradient-to-br dark:from-gray-800 dark:to-gray-900 hover:bg-gray-300 dark:hover:from-gray-700 dark:hover:to-gray-800 border border-gray-300 dark:border-gray-700 text-gray-900 dark:text-white font-bold py-4 rounded-xl text-xl transition shadow-lg"
                 >
                   🔄 Đặt Lại Bộ Đếm
                 </button>
@@ -248,17 +284,17 @@ export const ExercisePage = () => {
 
               {/* Instructions Section */}
               {currentExercise && (
-                <div className="bg-white rounded-lg p-6 shadow-md">
-                  <h2 className="text-2xl font-bold text-gray-800 mb-4">
+                <div className="bg-white dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl transition-colors duration-300">
+                  <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-4">
                     Hướng Dẫn: {currentExercise.name}
                   </h2>
-                  <p className="text-lg text-gray-600 mb-4">
+                  <p className="text-lg text-gray-600 dark:text-gray-400 mb-4">
                     {exerciseDetails[currentExercise.id]?.description}
                   </p>
                   <div className="space-y-2">
-                    <p className="font-semibold text-gray-800 text-lg">Các bước thực hiện:</p>
+                    <p className="font-semibold text-gray-900 dark:text-white text-lg">Các bước thực hiện:</p>
                     {exerciseDetails[currentExercise.id]?.instructions.map((step, index) => (
-                      <p key={index} className="text-gray-700 text-lg">
+                      <p key={index} className="text-gray-700 dark:text-gray-300 text-base">
                         {index + 1}. {step}
                       </p>
                     ))}
@@ -267,18 +303,17 @@ export const ExercisePage = () => {
               )}
 
               {/* Video Hướng Dẫn Placeholder */}
-              <div className="bg-white rounded-lg p-6 shadow-md">
-                <h3 className="text-xl font-bold text-gray-800 mb-4">📹 Video Hướng Dẫn</h3>
-                <div className="bg-gray-900 rounded-lg aspect-video flex items-center justify-center">
+              <div className="bg-white dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl transition-colors duration-300">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4">📹 Video Hướng Dẫn</h3>
+                <div className="bg-gray-200 dark:bg-black rounded-xl aspect-video flex items-center justify-center border border-gray-300 dark:border-gray-800 transition-colors duration-300">
                   <div className="text-center">
-                    <svg className="w-20 h-20 text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-20 h-20 text-gray-400 dark:text-gray-600 mx-auto mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                     </svg>
-                    <p className="text-gray-500 text-lg">
+                    <p className="text-gray-500 dark:text-gray-500 text-lg">
                       Video hướng dẫn sẽ được thêm vào đây
                     </p>
-                    {/* Chỗ này bạn có thể chèn <video> hoặc <iframe> cho video hướng dẫn */}
                   </div>
                 </div>
               </div>
@@ -286,8 +321,8 @@ export const ExercisePage = () => {
 
             {/* Right: Exercise Selection Sidebar */}
             <div className="lg:col-span-1">
-              <div className="bg-white rounded-lg p-6 shadow-md sticky top-24">
-                <h2 className="text-2xl font-bold text-gray-800 mb-6">Chọn Bài Tập</h2>
+              <div className="bg-white dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 border border-gray-200 dark:border-gray-700 rounded-2xl p-6 shadow-xl sticky top-24 transition-colors duration-300">
+                <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-6">Chọn Bài Tập</h2>
                 
                 <div className="space-y-4">
                   {exercises.map((exercise) => {
@@ -299,42 +334,46 @@ export const ExercisePage = () => {
                         key={exercise.id}
                         onClick={() => !isExercising && setSelectedExercise(exercise.id)}
                         disabled={isExercising}
-                        className={`w-full text-left p-4 rounded-lg border-2 transition ${
+                        className={`w-full text-left p-4 rounded-xl border-2 transition-all duration-300 ${
                           isSelected
-                            ? 'border-teal-500 bg-teal-50'
-                            : 'border-gray-200 hover:border-teal-300 bg-white'
+                            ? 'border-teal-500 bg-gradient-to-br from-teal-500/20 to-cyan-500/20 shadow-lg shadow-teal-500/20'
+                            : 'border-gray-700 hover:border-teal-500/50 bg-gray-800/50'
                         } disabled:opacity-50 disabled:cursor-not-allowed`}
                       >
                         <div className="flex items-start justify-between mb-2">
                           <div className="flex items-center gap-3">
-                            <div className={`p-2 rounded-lg ${isSelected ? 'bg-teal-500' : 'bg-gray-200'}`}>
+                            <div className={`p-2 rounded-xl ${isSelected ? 'bg-gradient-to-br from-teal-500 to-cyan-500' : 'bg-gray-300 dark:bg-gray-700'}`}>
                               {exercise.id === 'squat' ? (
-                                <svg className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-600 dark:text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" />
                                 </svg>
                               ) : (
-                                <svg className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-600'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <svg className={`w-6 h-6 ${isSelected ? 'text-white' : 'text-gray-600 dark:text-gray-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 11l5-5m0 0l5 5m-5-5v12" />
                                 </svg>
                               )}
                             </div>
                             <div>
-                              <h3 className="font-bold text-lg text-gray-800">{exercise.name}</h3>
-                              <span className={`text-sm px-2 py-1 rounded ${getDifficultyColor(details?.difficulty || 'Dễ')}`}>
+                              <h3 className="font-bold text-lg text-gray-900 dark:text-white">{exercise.name}</h3>
+                              <span className={`text-xs px-2 py-1 rounded-full ${
+                                details?.difficulty === 'Dễ' ? 'bg-green-500/20 text-green-600 dark:text-green-400' :
+                                details?.difficulty === 'Trung bình' ? 'bg-yellow-500/20 text-yellow-600 dark:text-yellow-400' :
+                                'bg-red-500/20 text-red-600 dark:text-red-400'
+                              }`}>
                                 {details?.difficulty || 'Dễ'}
                               </span>
                             </div>
                           </div>
                           {isSelected && (
-                            <div className="text-teal-500">
+                            <div className="text-teal-500 dark:text-teal-400">
                               <svg className="w-6 h-6" fill="currentColor" viewBox="0 0 20 20">
                                 <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                               </svg>
                             </div>
                           )}
                         </div>
-                        <p className="text-gray-600 text-sm mb-2">{details?.description}</p>
-                        <div className="flex items-center gap-4 text-sm text-gray-500">
+                        <p className="text-gray-600 dark:text-gray-400 text-sm mb-2">{details?.description}</p>
+                        <div className="flex items-center gap-4 text-sm text-gray-500 dark:text-gray-500">
                           <span className="flex items-center gap-1">
                             ⏱️ {exercise.id === 'squat' ? '5-10 phút' : '5 phút'}
                           </span>
@@ -355,67 +394,108 @@ export const ExercisePage = () => {
             </div>
           </div>
         </div>
-      ) : (
-        /* Session Summary */
-        <div className="max-w-4xl mx-auto p-6">
-          <div className="bg-white rounded-lg shadow-md p-8">
-            <div className="text-center mb-8">
-              <h2 className="text-4xl font-bold text-gray-800 mb-4">🎉 Hoàn Thành!</h2>
-              <div className="text-6xl font-bold text-green-600 mb-2">
-                {sessionSummary?.accuracy?.toFixed(1)}%
-              </div>
-              <p className="text-xl text-gray-600">Độ chính xác</p>
-            </div>
 
-            <div className="grid grid-cols-3 gap-6 mb-8">
-              <div className="bg-blue-50 p-6 rounded-lg text-center">
-                <p className="text-gray-600 text-lg mb-2">Tổng số lần</p>
-                <p className="text-4xl font-bold text-blue-600">{sessionSummary?.total_reps}</p>
-              </div>
-              <div className="bg-green-50 p-6 rounded-lg text-center">
-                <p className="text-gray-600 text-lg mb-2">Đúng kỹ thuật</p>
-                <p className="text-4xl font-bold text-green-600">{sessionSummary?.correct_reps}</p>
-              </div>
-              <div className="bg-purple-50 p-6 rounded-lg text-center">
-                <p className="text-gray-600 text-lg mb-2">Thời gian</p>
-                <p className="text-4xl font-bold text-purple-600">
-                  {Math.floor(sessionSummary?.duration_seconds / 60)}p
-                </p>
-              </div>
-            </div>
+        {/* Session Summary Modal Popup */}
+        {showSummary && sessionSummary && (
+          <div className="fixed inset-0 bg-black/80 dark:bg-black/90 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+            <div className="bg-white dark:bg-gradient-to-br dark:from-gray-900 dark:to-gray-800 border-2 border-gray-200 dark:border-gray-700 rounded-3xl shadow-2xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+              <div className="p-8">
+                {/* Header with completion status */}
+                <div className="text-center mb-8">
+                  {completionStatus === 'completed' ? (
+                    <>
+                      <div className="text-6xl mb-4">🎉</div>
+                      <h2 className="text-4xl font-bold text-green-500 dark:text-green-400 mb-2">Hoàn Thành!</h2>
+                      <p className="text-xl text-gray-600 dark:text-gray-400">Bạn đã hoàn thành bài tập trong thời gian quy định</p>
+                    </>
+                  ) : (
+                    <>
+                      <div className="text-6xl mb-4">⏰</div>
+                      <h2 className="text-4xl font-bold text-orange-500 dark:text-orange-400 mb-2">Hết Giờ!</h2>
+                      <p className="text-xl text-gray-600 dark:text-gray-400">Bạn chưa hoàn thành bài tập trong thời gian quy định</p>
+                    </>
+                  )}
+                </div>
 
-            <div className="flex gap-4">
-              <button
-                onClick={() => {
-                  setShowSummary(false);
-                  setSessionId(null);
-                }}
-                className="flex-1 bg-teal-600 hover:bg-teal-700 text-white font-bold py-5 px-6 rounded-lg text-xl transition"
-              >
-                Tập Tiếp
-              </button>
-              <button
-                onClick={() => navigate('/')}
-                className="flex-1 bg-gray-600 hover:bg-gray-700 text-white font-bold py-5 px-6 rounded-lg text-xl transition"
-              >
-                Về Trang Chủ
-              </button>
+                {/* Accuracy */}
+                <div className="text-center mb-6">
+                  <div className={`text-6xl font-bold mb-2 ${
+                    completionStatus === 'completed' ? 'text-green-500 dark:text-green-400' : 'text-orange-500 dark:text-orange-400'
+                  }`}>
+                    {sessionSummary?.accuracy?.toFixed(1)}%
+                  </div>
+                  <p className="text-xl text-gray-600 dark:text-gray-400">Độ chính xác</p>
+                </div>
+
+                {/* Stats Grid */}
+                <div className="grid grid-cols-3 gap-4 mb-8">
+                  <div className="bg-blue-50 dark:bg-gradient-to-br dark:from-blue-500/20 dark:to-blue-600/20 border border-blue-200 dark:border-blue-500/30 p-4 rounded-xl text-center">
+                    <p className="text-gray-600 dark:text-gray-400 text-sm mb-1">Tổng số lần</p>
+                    <p className="text-3xl font-bold text-blue-500 dark:text-blue-400">{sessionSummary?.total_reps}</p>
+                  </div>
+                  <div className="bg-green-50 dark:bg-gradient-to-br dark:from-green-500/20 dark:to-green-600/20 border border-green-200 dark:border-green-500/30 p-4 rounded-xl text-center">
+                    <p className="text-gray-600 dark:text-gray-400 text-sm mb-1">Đúng kỹ thuật</p>
+                    <p className="text-3xl font-bold text-green-500 dark:text-green-400">{sessionSummary?.correct_reps}</p>
+                  </div>
+                  <div className="bg-purple-50 dark:bg-gradient-to-br dark:from-purple-500/20 dark:to-purple-600/20 border border-purple-200 dark:border-purple-500/30 p-4 rounded-xl text-center">
+                    <p className="text-gray-600 dark:text-gray-400 text-sm mb-1">Thời gian</p>
+                    <p className="text-3xl font-bold text-purple-500 dark:text-purple-400">
+                      {Math.floor(sessionSummary?.duration_seconds / 60)}:{(sessionSummary?.duration_seconds % 60).toString().padStart(2, '0')}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Common Errors */}
+                {sessionSummary?.common_errors && Object.keys(sessionSummary.common_errors).length > 0 && (
+                  <div className="bg-orange-50 dark:bg-gradient-to-br dark:from-orange-500/20 dark:to-red-500/20 border border-orange-200 dark:border-orange-500/30 rounded-xl p-4 mb-6">
+                    <h3 className="text-lg font-bold text-gray-900 dark:text-white mb-3">⚠️ Lỗi cần cải thiện:</h3>
+                    <div className="space-y-2">
+                      {Object.entries(sessionSummary.common_errors).map(([error, data]: [string, any]) => (
+                        <div key={error} className="flex justify-between text-base">
+                          <span className="text-gray-700 dark:text-gray-300">{error}</span>
+                          <span className="font-semibold text-orange-600 dark:text-orange-400">{data.count} lần</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => {
+                      setShowSummary(false);
+                      setSessionId(null);
+                      setCompletionStatus(null);
+                    }}
+                    className="flex-1 bg-gradient-to-r from-teal-500 to-cyan-500 hover:from-teal-600 hover:to-cyan-600 text-white font-bold py-4 px-6 rounded-xl text-xl transition shadow-2xl shadow-teal-500/30"
+                  >
+                    💪 Tập Tiếp
+                  </button>
+                  <button
+                    onClick={() => navigate('/')}
+                    className="flex-1 bg-gray-200 hover:bg-gray-300 dark:bg-gray-600 dark:hover:bg-gray-700 text-gray-900 dark:text-white font-bold py-4 px-6 rounded-lg text-xl transition shadow-lg"
+                  >
+                    Về Trang Chủ
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* Footer */}
-      <footer className="bg-white border-t border-gray-200 mt-12 py-6">
-        <div className="max-w-7xl mx-auto px-6 text-center">
-          <p className="text-gray-600 text-lg">
-            © 2024 AI-Powered Home Rehabilitation System
-          </p>
-          <p className="text-gray-500 mt-1">
-            Được phát triển với ❤️ để hỗ trợ người cao tuổi
-          </p>
-        </div>
-      </footer>
-    </div>
+        {/* Footer - Dark Theme */}
+        <footer className="bg-black border-t border-gray-900 mt-12 py-8">
+          <div className="max-w-7xl mx-auto px-6 text-center">
+            <p className="text-gray-400 text-base">
+              © 2025 Rehab AI
+            </p>
+            <p className="text-gray-600 mt-1 text-sm">
+              Made with ❤️ for elderly health
+            </p>
+          </div>
+        </footer>
+      </div>
+    </>
   );
 };

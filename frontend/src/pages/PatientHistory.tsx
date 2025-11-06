@@ -1,15 +1,14 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
+import { useNavigate } from 'react-router-dom';
 import { sessionAPI } from '../utils/api';
 import { SessionCard } from '../components/SessionCard';
 import { ProgressChart } from '../components/ProgressChart';
 import { ErrorAnalytics } from '../components/ErrorAnalytics';
+import { Navbar } from '../components/Navbar';
 import type { Session } from '../types';
 
 export const PatientHistory = () => {
   const navigate = useNavigate();
-  const { logout } = useAuth();
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -29,55 +28,10 @@ export const PatientHistory = () => {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      {/* Navbar */}
-      <nav className="bg-white shadow-md sticky top-0 z-50 border-b-4 border-teal-600">
-        <div className="max-w-7xl mx-auto px-6 py-4">
-          <div className="flex justify-between items-center">
-            <Link to="/" className="flex items-center space-x-3">
-              <div className="bg-teal-600 text-white p-2 rounded-lg">
-                <svg className="w-8 h-8" fill="currentColor" viewBox="0 0 24 24">
-                  <path d="M12 2L2 7v10c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V7l-10-5z"/>
-                </svg>
-              </div>
-              <span className="text-2xl font-bold text-gray-800">Rehab System</span>
-            </Link>
-            
-            <div className="flex space-x-6 text-lg">
-              <Link
-                to="/"
-                className="text-gray-600 hover:text-teal-600 flex items-center gap-2 transition"
-              >
-                🏠 Trang Chủ
-              </Link>
-              <Link
-                to="/exercise"
-                className="text-gray-600 hover:text-teal-600 flex items-center gap-2 transition"
-              >
-                💪 Bài Tập
-              </Link>
-              <Link
-                to="/history"
-                className="text-white bg-teal-600 px-4 py-2 rounded-lg font-semibold flex items-center gap-2"
-              >
-                📖 Lịch Sử
-              </Link>
-            </div>
-
-            <button
-              onClick={() => {
-                logout();
-                navigate('/');
-              }}
-              className="text-gray-600 hover:text-red-600 font-semibold text-lg transition"
-            >
-              Đăng Xuất
-            </button>
-          </div>
-        </div>
-      </nav>
-
-      <div className="max-w-6xl mx-auto p-6">
+    <>
+      <Navbar />
+      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300">
+        <div className="max-w-6xl mx-auto p-6">
         {isLoading ? (
           <div className="text-center py-12">
             <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-teal-600 mx-auto"></div>
@@ -96,9 +50,9 @@ export const PatientHistory = () => {
         ) : (
           <>
             {/* Charts */}
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+            <div className="grid grid-cols-1 gap-6 mb-6">
               <ProgressChart sessions={sessions} />
-              <ErrorAnalytics sessions={sessions} />
+              <ErrorAnalytics />
             </div>
 
             {/* Summary Stats */}
@@ -140,5 +94,6 @@ export const PatientHistory = () => {
         )}
       </div>
     </div>
+    </>
   );
 };
