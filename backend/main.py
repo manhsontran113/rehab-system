@@ -6,6 +6,7 @@ With Authentication, Database, Session Management, AI Personalization
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import cv2
 import mediapipe as mp
@@ -74,6 +75,9 @@ def get_vietnamese_error_name(error_name: str) -> str:
 
 app = FastAPI(title="Rehab System V3")
 
+# Mount static files directory for music and assets
+app.mount("/static", StaticFiles(directory="."), name="static")
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -89,7 +93,7 @@ mp_pose = mp.solutions.pose
 pose = mp_pose.Pose(
     min_detection_confidence=0.5,
     min_tracking_confidence=0.5,
-    model_complexity=0
+    model_complexity=1
 )
 
 
@@ -505,6 +509,8 @@ class RepetitionCounter:
         """Called when a rep is completed - save errors for this rep"""
         self.rep_count += 1
         self.all_rep_errors.append(list(self.current_rep_errors))
+        print(f"✅ Rep {self.rep_count} completed! Errors in this rep: {list(self.current_rep_errors)}")
+        print(f"   Total all_rep_errors so far: {self.all_rep_errors}")
         self.current_rep_errors.clear()  # Reset for next rep
         self.rep_completed = True
     
@@ -787,30 +793,61 @@ class RepetitionCounter:
 class ErrorDetector:
     def __init__(self, exercise_type):
         self.exercise_type = exercise_type
+        # Track error timestamps: {error_name: first_detected_time}
+        self.error_timers = {}
+        self.error_threshold = 3  # seconds - only count error if persists for this long
         
     def detect_errors(self, landmarks, angles, state: ExerciseState, rep_counter: RepetitionCounter):
         """
         Detect errors and add them to the current rep.
+        Only records an error if it persists for error_threshold (3s) continuously.
         Returns errors for real-time feedback display.
         """
         errors = []
+        current_time = time.time()
         
         if self.exercise_type == "arm_raise":
-            errors.extend(self._check_arm_raise_errors(landmarks, angles, state, rep_counter))
+            errors.extend(self._check_arm_raise_errors(landmarks, angles, state, rep_counter, current_time))
         elif self.exercise_type == "squat":
-            errors.extend(self._check_squat_errors(landmarks, angles, state, rep_counter))
+            errors.extend(self._check_squat_errors(landmarks, angles, state, rep_counter, current_time))
         elif self.exercise_type == "single_leg_stand":
-            errors.extend(self._check_single_leg_errors(landmarks, angles, state, rep_counter))
+            errors.extend(self._check_single_leg_errors(landmarks, angles, state, rep_counter, current_time))
         elif self.exercise_type == "calf_raise":
-            errors.extend(self._check_calf_raise_errors(landmarks, angles, state, rep_counter))
+            errors.extend(self._check_calf_raise_errors(landmarks, angles, state, rep_counter, current_time))
 
         return errors
     
-    def _check_single_leg_errors(self, landmarks, angles, state, rep_counter):
+    def _should_record_error(self, error_name: str, current_time: float) -> bool:
+        """
+        Check if error should be recorded based on persistence time.
+        Returns True if error has persisted for >= error_threshold seconds.
+        """
+        if error_name not in self.error_timers:
+            # First time seeing this error, start timer
+            self.error_timers[error_name] = current_time
+            return False
+        
+        # Check if error has persisted long enough
+        elapsed = current_time - self.error_timers[error_name]
+        return elapsed >= self.error_threshold
+    
+    def _clear_error_timer(self, error_name: str):
+        """Clear error timer when error is no longer detected"""
+        if error_name in self.error_timers:
+            del self.error_timers[error_name]
+    
+    def reset_timers(self):
+        """Reset all error timers (called when starting new rep)"""
+        self.error_timers.clear()
+    
+    def _check_single_leg_errors(self, landmarks, angles, state, rep_counter, current_time):
         errors = []
 
         # Only check errors during HOLDING state
         if state != ExerciseState.HOLDING:
+            # Clear timers when not in HOLDING state
+            self._clear_error_timer('Gối chưa gập đủ sâu')
+            self._clear_error_timer('Chân không ra sau')
             return errors
 
         # Lấy góc của cả 2 bên
@@ -834,26 +871,38 @@ class ErrorDetector:
         # Error 1: Gối không gập đủ sâu (phải < 50°)
         if knee_flexion > 50:
             error_name = 'Gối chưa gập đủ sâu'
-            rep_counter.add_error_to_current_rep(error_name)  # ✅ Add to current rep
-            errors.append({
-                'name': error_name,
-                'message': f'❌ Gập gối sâu hơn! (hiện tại: {knee_flexion:.0f}°, cần: <50°)',
-                'severity': 'high'
-            })
+            
+            # Only record and show error if it persists for 1.5s
+            if self._should_record_error(error_name, current_time):
+                rep_counter.add_error_to_current_rep(error_name)
+                # Show in real-time feedback only after 1.5s
+                errors.append({
+                    'name': error_name,
+                    'message': f'❌ Gập gối sâu hơn! (hiện tại: {knee_flexion:.0f}°, cần: <50°)',
+                    'severity': 'high'
+                })
+        else:
+            self._clear_error_timer('Gối chưa gập đủ sâu')
 
         # Error 2: CHÂN KHÔNG RA SAU - ra trước (dùng Z-coordinate)
         if leg_behind_value < 0.05:
             error_name = 'Chân không ra sau'
-            rep_counter.add_error_to_current_rep(error_name)  # ✅ Add to current rep
-            errors.append({
-                'name': error_name,
-                'message': f'⚠️ Đưa chân RA SAU, không ra trước! (hiện tại: {leg_behind_value:.3f}, cần: >0.05)',
-                'severity': 'critical'
-            })
+            
+            # Only record and show error if it persists for 1.5s
+            if self._should_record_error(error_name, current_time):
+                rep_counter.add_error_to_current_rep(error_name)
+                # Show in real-time feedback only after 1.5s
+                errors.append({
+                    'name': error_name,
+                    'message': f'⚠️ Đưa chân RA SAU, không ra trước! (hiện tại: {leg_behind_value:.3f}, cần: >0.05)',
+                    'severity': 'critical'
+                })
+        else:
+            self._clear_error_timer('Chân không ra sau')
 
         return errors
 
-    def _check_arm_raise_errors(self, landmarks, angles, state, rep_counter):
+    def _check_arm_raise_errors(self, landmarks, angles, state, rep_counter, current_time):
         errors = []
         
         left_shoulder = angles.get('left_shoulder', 0)
@@ -870,38 +919,63 @@ class ErrorDetector:
             # Error 1: Góc vai không đủ (CẢ 2 TAY phải cao)
             if shoulder_angle < 160:
                 error_name = 'Góc vai chưa đủ'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': f'❌ Nâng CẢ 2 TAY cao hơn! (thấp nhất: {shoulder_angle:.0f}°)',
-                    'severity': 'high'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': f'❌ Nâng CẢ 2 TAY cao hơn! (thấp nhất: {shoulder_angle:.0f}°)',
+                        'severity': 'high'
+                    })
+            else:
+                self._clear_error_timer('Góc vai chưa đủ')
             
             # Error 2: Tay không thẳng (CẢ 2 TAY phải thẳng)
             if elbow_angle < 160:
                 error_name = 'Tay không thẳng'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': '⚠️ Duỗi thẳng CẢ 2 TAY!',
-                    'severity': 'medium'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': '⚠️ Duỗi thẳng CẢ 2 TAY!',
+                        'severity': 'medium'
+                    })
+            else:
+                self._clear_error_timer('Tay không thẳng')
+        else:
+            # Not in UP state, clear UP state error timers
+            self._clear_error_timer('Góc vai chưa đủ')
+            self._clear_error_timer('Tay không thẳng')
         
         # ✅ CHECK Ở STATE DOWN (đã hạ xong)
-        elif state == ExerciseState.DOWN:
+        if state == ExerciseState.DOWN:
             # Error 3: Chưa hạ hết tay
             if shoulder_angle > 90:
                 error_name = 'Chưa hạ hết'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': '⚠️ Hạ CẢ 2 TAY xuống hẳn!',
-                    'severity': 'medium'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': '⚠️ Hạ CẢ 2 TAY xuống hẳn!',
+                        'severity': 'medium'
+                    })
+            else:
+                self._clear_error_timer('Chưa hạ hết')
+        else:
+            # Not in DOWN state, clear DOWN state error timers
+            self._clear_error_timer('Chưa hạ hết')
         
         return errors
     
-    def _check_squat_errors(self, landmarks, angles, state, rep_counter):
+    def _check_squat_errors(self, landmarks, angles, state, rep_counter, current_time):
         errors = []
         
         left_knee = angles.get('left_knee', 180)
@@ -913,26 +987,45 @@ class ErrorDetector:
         if state == ExerciseState.UP:
             if knee_angle > 90:
                 error_name = 'Gập gối chưa đủ'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': f'❌ Gập CẢ 2 CHÂN sâu hơn! (cao nhất: {knee_angle:.0f}°)',
-                    'severity': 'high'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': f'❌ Gập CẢ 2 CHÂN sâu hơn! (cao nhất: {knee_angle:.0f}°)',
+                        'severity': 'high'
+                    })
+            else:
+                self._clear_error_timer('Gập gối chưa đủ')
+        else:
+            # Not in UP state, clear UP state error timer
+            self._clear_error_timer('Gập gối chưa đủ')
         
-        elif state == ExerciseState.DOWN:
+        # Check ở state DOWN (đã đứng thẳng)
+        if state == ExerciseState.DOWN:
             if knee_angle < 160:
                 error_name = 'Chưa đứng thẳng'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': '⚠️ Đứng thẳng CẢ 2 CHÂN!',
-                    'severity': 'medium'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': '⚠️ Đứng thẳng CẢ 2 CHÂN!',
+                        'severity': 'medium'
+                    })
+            else:
+                self._clear_error_timer('Chưa đứng thẳng')
+        else:
+            # Not in DOWN state, clear DOWN state error timer
+            self._clear_error_timer('Chưa đứng thẳng')
         
         return errors
 
-    def _check_calf_raise_errors(self, landmarks, angles, state, rep_counter):
+    def _check_calf_raise_errors(self, landmarks, angles, state, rep_counter, current_time):
         errors = []
         
         left_ankle = angles.get('left_ankle', 90)
@@ -949,34 +1042,59 @@ class ErrorDetector:
             # Error 1: Chưa nâng đủ cao (CẢ 2 CHÂN)
             if ankle_angle < 140:
                 error_name = 'Chưa nâng đủ cao'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': f'❌ Nâng CẢ 2 GÓT cao hơn! (thấp nhất: {ankle_angle:.0f}°)',
-                    'severity': 'high'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': f'❌ Nâng CẢ 2 GÓT cao hơn! (thấp nhất: {ankle_angle:.0f}°)',
+                        'severity': 'high'
+                    })
+            else:
+                self._clear_error_timer('Chưa nâng đủ cao')
             
             # Error 2: Gập gối (CẢ 2 CHÂN phải thẳng)
             if knee_angle < 160:
                 error_name = 'Gập gối'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': '⚠️ Giữ CẢ 2 CHÂN thẳng!',
-                    'severity': 'medium'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': '⚠️ Giữ CẢ 2 CHÂN thẳng!',
+                        'severity': 'medium'
+                    })
+            else:
+                self._clear_error_timer('Gập gối')
+        else:
+            # Not in UP state, clear UP state error timers
+            self._clear_error_timer('Chưa nâng đủ cao')
+            self._clear_error_timer('Gập gối')
         
         # Check ở state DOWN (đã hạ gót xuống)
-        elif state == ExerciseState.DOWN:
+        if state == ExerciseState.DOWN:
             # Error 3: Chưa hạ hết
             if ankle_angle > 105:
                 error_name = 'Chưa hạ hết'
-                rep_counter.add_error_to_current_rep(error_name)
-                errors.append({
-                    'name': error_name,
-                    'message': '⚠️ Hạ CẢ 2 GÓT xuống hẳn!',
-                    'severity': 'medium'
-                })
+                
+                # Only record and show error if it persists for 1.5s
+                if self._should_record_error(error_name, current_time):
+                    rep_counter.add_error_to_current_rep(error_name)
+                    # Show in real-time feedback only after 1.5s
+                    errors.append({
+                        'name': error_name,
+                        'message': '⚠️ Hạ CẢ 2 GÓT xuống hẳn!',
+                        'severity': 'medium'
+                    })
+            else:
+                self._clear_error_timer('Chưa hạ hết')
+        else:
+            # Not in DOWN state, clear DOWN state error timer
+            self._clear_error_timer('Chưa hạ hết')
         
         return errors
     
@@ -1052,9 +1170,23 @@ class SessionManager:
         # Calculate stats
         total_reps = self.active_rep_counter.rep_count if self.active_rep_counter else 0
         
-        # ✅ Calculate accuracy based on reps WITH errors vs total reps
-        reps_with_errors = len(self.active_rep_counter.all_rep_errors) if self.active_rep_counter else 0
-        correct_reps = total_reps - reps_with_errors
+        # ✅ Calculate accuracy: Count reps with NO errors (empty error list)
+        correct_reps = 0
+        if self.active_rep_counter and self.active_rep_counter.all_rep_errors:
+            # A rep is correct if its error list is EMPTY
+            correct_reps = sum(1 for rep_errors in self.active_rep_counter.all_rep_errors if len(rep_errors) == 0)
+            
+            # Debug log
+            print(f"\n📊 SESSION SUMMARY:")
+            print(f"   Total reps: {total_reps}")
+            print(f"   All rep errors: {self.active_rep_counter.all_rep_errors}")
+            print(f"   Correct reps (no errors): {correct_reps}")
+            for i, rep_errors in enumerate(self.active_rep_counter.all_rep_errors, 1):
+                if len(rep_errors) == 0:
+                    print(f"   Rep {i}: ✅ CORRECT (no errors)")
+                else:
+                    print(f"   Rep {i}: ❌ ERRORS: {rep_errors}")
+        
         accuracy = (correct_reps / total_reps * 100) if total_reps > 0 else 0
         
         # Update session
@@ -1635,6 +1767,7 @@ async def websocket_endpoint(websocket: WebSocket, exercise_type: str):
     session_manager.active_rep_counter = rep_counter
     
     last_process_time = 0
+    prev_rep_count = 0  # Track previous rep count to detect new reps
     
     try:
         while True:
@@ -1690,6 +1823,11 @@ async def websocket_endpoint(websocket: WebSocket, exercise_type: str):
                         
                         # ✅ GỌI update() thay vì count()
                         rep_count = rep_counter.update(angles)
+                        
+                        # Reset error timers when new rep starts
+                        if rep_count > prev_rep_count:
+                            error_detector.reset_timers()
+                            prev_rep_count = rep_count
                         
                         # Get current state
                         current_state = rep_counter.get_state()

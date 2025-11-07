@@ -16,6 +16,13 @@ export const useWebSocket = (
   const [analysisData, setAnalysisData] = useState<AnalysisResult | null>(null);
   const wsRef = useRef<WebSocket | null>(null);
 
+  // Store customThresholds in ref to avoid reconnection
+  const customThresholdsRef = useRef(customThresholds);
+  
+  useEffect(() => {
+    customThresholdsRef.current = customThresholds;
+  }, [customThresholds]);
+
   const connect = useCallback(() => {
     if (!isActive || wsRef.current) return;
 
@@ -27,12 +34,12 @@ export const useWebSocket = (
       setIsConnected(true);
       
       // Send custom thresholds if available
-      if (customThresholds) {
+      if (customThresholdsRef.current) {
         ws.send(JSON.stringify({
           type: 'set_thresholds',
-          thresholds: customThresholds
+          thresholds: customThresholdsRef.current
         }));
-        console.log('Sent custom thresholds:', customThresholds);
+        console.log('Sent custom thresholds:', customThresholdsRef.current);
       }
     };
 
@@ -99,7 +106,7 @@ export const useWebSocket = (
     return () => {
       disconnect();
     };
-  }, [isActive, connect, disconnect, customThresholds]);
+  }, [isActive, connect, disconnect]); // Removed customThresholds from dependencies
 
   return {
     isConnected,

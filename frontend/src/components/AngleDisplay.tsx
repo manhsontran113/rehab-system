@@ -9,13 +9,13 @@ interface AngleDisplayProps {
 export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayProps) => {
   const getAngleColor = (angle: number, target: number, direction: 'up' | 'down') => {
     if (direction === 'up') {
-      if (angle >= target) return 'text-green-600 bg-green-50';
-      if (angle >= target - 20) return 'text-yellow-600 bg-yellow-50';
-      return 'text-red-600 bg-red-50';
+      if (angle >= target) return 'text-green-700 bg-green-100 dark:text-green-400 dark:bg-green-900/30';
+      if (angle >= target - 20) return 'text-yellow-700 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/30';
+      return 'text-red-700 bg-red-100 dark:text-red-400 dark:bg-red-900/30';
     } else {
-      if (angle <= target) return 'text-green-600 bg-green-50';
-      if (angle <= target + 20) return 'text-yellow-600 bg-yellow-50';
-      return 'text-red-600 bg-red-50';
+      if (angle <= target) return 'text-green-700 bg-green-100 dark:text-green-400 dark:bg-green-900/30';
+      if (angle <= target + 20) return 'text-yellow-700 bg-yellow-100 dark:text-yellow-400 dark:bg-yellow-900/30';
+      return 'text-red-700 bg-red-100 dark:text-red-400 dark:bg-red-900/30';
     }
   };
 
@@ -60,8 +60,8 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
     );
   }
   return (
-    <div className="bg-white rounded-lg p-6 shadow-md">
-      <h3 className="text-xl font-bold text-gray-800 mb-4 flex items-center gap-2">
+    <div className="bg-white dark:bg-gray-900 rounded-lg p-6 shadow-md border border-gray-200 dark:border-gray-700">
+      <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-4 flex items-center gap-2">
         📐 Góc Khớp
       </h3>
 
@@ -69,10 +69,10 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
         // ✅ Hiển thị khi chưa detect được người
         <div className="text-center py-8">
           <div className="text-6xl mb-4">🎥</div>
-          <p className="text-lg font-semibold text-gray-700 mb-2">
+          <p className="text-lg font-semibold text-gray-800 dark:text-gray-200 mb-2">
             Đứng vào trước camera
           </p>
-          <p className="text-base text-gray-500">
+          <p className="text-base text-gray-600 dark:text-gray-400">
             để bắt đầu bài tập
           </p>
         </div>
@@ -81,7 +81,7 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
         <div className="text-center py-8">
           <div className="animate-pulse">
             <div className="text-4xl mb-4">⏳</div>
-            <p className="text-lg text-gray-600">Đang phân tích...</p>
+            <p className="text-lg text-gray-700 dark:text-gray-300">Đang phân tích...</p>
           </div>
         </div>
       ) : (
@@ -96,7 +96,7 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
             return (
               <div key={config.key} className="space-y-2">
                 <div className="flex justify-between items-center">
-                  <span className="text-base font-semibold text-gray-700">
+                  <span className="text-base font-semibold text-gray-800 dark:text-gray-200">
                     {config.label}
                   </span>
                   <span className={`text-2xl font-bold px-3 py-1 rounded-lg ${colorClass}`}>
@@ -105,20 +105,20 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
                 </div>
                 
                 {/* Progress bar */}
-                <div className="w-full bg-gray-200 rounded-full h-4 overflow-hidden">
+                <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-4 overflow-hidden">
                   <div
                     className={`h-full transition-all duration-300 ${
                       progress >= 100
-                        ? 'bg-green-500'
+                        ? 'bg-green-500 dark:bg-green-600'
                         : progress >= 80
-                        ? 'bg-yellow-500'
-                        : 'bg-red-500'
+                        ? 'bg-yellow-500 dark:bg-yellow-600'
+                        : 'bg-red-500 dark:bg-red-600'
                     }`}
                     style={{ width: `${Math.max(progress, 5)}%` }}
                   />
                 </div>
                 
-                <div className="flex justify-between text-sm text-gray-500">
+                <div className="flex justify-between text-sm text-gray-600 dark:text-gray-400">
                   <span>Hiện tại: {Math.round(angleValue)}°</span>
                   <span>Mục tiêu: {config.target}°</span>
                 </div>
@@ -127,8 +127,8 @@ export const AngleDisplay = ({ angles, exerciseType, isDetected }: AngleDisplayP
           })}
 
             {/* Tip */}
-            <div className="mt-6 pt-4 border-t border-gray-200">
-            <p className="text-sm text-gray-600 italic">
+            <div className="mt-6 pt-4 border-t border-gray-200 dark:border-gray-700">
+            <p className="text-sm text-gray-700 dark:text-gray-400 italic">
                 💡 {exerciseType === 'arm_raise' 
                 ? 'Nâng tay thẳng lên cao, giữ khuỷu tay thẳng'
                 : exerciseType === 'squat'

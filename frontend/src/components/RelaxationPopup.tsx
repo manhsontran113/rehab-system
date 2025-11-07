@@ -1,4 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
+import { voiceService, VoiceMessages } from '../utils/voiceService';
 
 interface RelaxationPopupProps {
   isOpen: boolean;
@@ -15,6 +16,11 @@ export const RelaxationPopup = ({ isOpen, onClose, duration = 180 }: RelaxationP
     if (isOpen) {
       setTimeRemaining(duration);
       setIsPlaying(true);
+
+      // Voice: Start relaxation
+      setTimeout(() => {
+        voiceService.speak(VoiceMessages.relaxation.start, true);
+      }, 500);
 
       // Play relaxation music
       if (audioRef.current) {
@@ -35,10 +41,20 @@ export const RelaxationPopup = ({ isOpen, onClose, duration = 180 }: RelaxationP
     const timer = setInterval(() => {
       setTimeRemaining((prev) => {
         if (prev <= 1) {
+          // Voice: Relaxation complete
+          voiceService.speak(VoiceMessages.relaxation.complete, true);
           // Auto close when time's up
-          setTimeout(() => onClose(), 1000);
+          setTimeout(() => onClose(), 2000);
           return 0;
         }
+        
+        // Voice warnings at specific times
+        if (prev === 90) {
+          voiceService.addToQueue(VoiceMessages.relaxation.halfway);
+        } else if (prev === 30) {
+          voiceService.addToQueue(VoiceMessages.relaxation.almostDone);
+        }
+        
         return prev - 1;
       });
     }, 1000);
@@ -95,28 +111,28 @@ export const RelaxationPopup = ({ isOpen, onClose, duration = 180 }: RelaxationP
           </p>
         </div>
 
-        {/* Timer Display */}
-        <div className="text-center mb-8">
+        {/* Timer Display - Larger Circle */}
+        <div className="text-center mb-12">
           <div className="inline-block relative">
-            {/* Circular progress */}
-            <svg className="w-48 h-48 transform -rotate-90">
+            {/* Circular progress - Bigger size */}
+            <svg className="w-72 h-72 transform -rotate-90">
               <circle
-                cx="96"
-                cy="96"
-                r="88"
-                stroke="rgba(255, 255, 255, 0.2)"
-                strokeWidth="8"
+                cx="144"
+                cy="144"
+                r="132"
+                stroke="rgba(255, 255, 255, 0.15)"
+                strokeWidth="12"
                 fill="none"
               />
               <circle
-                cx="96"
-                cy="96"
-                r="88"
+                cx="144"
+                cy="144"
+                r="132"
                 stroke="url(#gradient)"
-                strokeWidth="8"
+                strokeWidth="12"
                 fill="none"
-                strokeDasharray={`${2 * Math.PI * 88}`}
-                strokeDashoffset={`${2 * Math.PI * 88 * (1 - progress / 100)}`}
+                strokeDasharray={`${2 * Math.PI * 132}`}
+                strokeDashoffset={`${2 * Math.PI * 132 * (1 - progress / 100)}`}
                 strokeLinecap="round"
                 className="transition-all duration-1000"
               />
@@ -131,34 +147,51 @@ export const RelaxationPopup = ({ isOpen, onClose, duration = 180 }: RelaxationP
             
             {/* Time in center */}
             <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <div className="text-6xl font-bold text-white drop-shadow-lg">
+              <div className="text-8xl font-bold text-white drop-shadow-2xl">
                 {formatTime(timeRemaining)}
               </div>
-              <div className="text-sm text-white/60 mt-1">còn lại</div>
+              <div className="text-lg text-white/70 mt-2 font-medium tracking-wide">còn lại</div>
             </div>
           </div>
         </div>
 
-        {/* Breathing Animation */}
-        <div className="text-center mb-8">
-          <div className="inline-flex items-center gap-3 bg-white/10 px-6 py-3 rounded-full">
-            <div className="w-4 h-4 bg-gradient-to-r from-blue-400 to-purple-400 rounded-full animate-breathe"></div>
-            <span className="text-white text-lg">Hít vào... Thở ra...</span>
-          </div>
-        </div>
-
-        {/* Progress Bar */}
-        <div className="mb-8">
-          <div className="w-full bg-white/20 rounded-full h-3 overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-blue-500 via-purple-500 to-pink-500 rounded-full transition-all duration-1000"
-              style={{ width: `${progress}%` }}
-            ></div>
+        {/* Breathing Animation - Improved Design */}
+        <div className="text-center mb-10">
+          <div className="relative inline-flex flex-col items-center justify-center gap-6">
+            {/* Breathing bubble */}
+            <div className="relative w-40 h-40">
+              {/* Main bubble with glow effect */}
+              <div className="absolute inset-0 bg-gradient-to-br from-blue-400/50 to-purple-500/50 rounded-full animate-breatheBubble shadow-2xl blur-sm"></div>
+              {/* Middle layer */}
+              <div className="absolute inset-3 bg-gradient-to-br from-blue-300/70 to-purple-400/70 rounded-full animate-breatheBubble shadow-xl" style={{ animationDelay: '0.15s' }}></div>
+              {/* Inner layer */}
+              <div className="absolute inset-6 bg-gradient-to-br from-blue-200/80 to-purple-300/80 rounded-full animate-breatheBubble shadow-lg" style={{ animationDelay: '0.3s' }}></div>
+              {/* Core */}
+              <div className="absolute inset-10 bg-gradient-to-br from-white/90 to-blue-100/90 rounded-full animate-breatheBubble" style={{ animationDelay: '0.45s' }}></div>
+            </div>
+            
+            {/* Breathing instruction text - Beautiful typography */}
+            <div className="flex flex-col items-center gap-2">
+              <div className="flex items-center gap-3">
+                <div className="w-2 h-2 bg-blue-400 rounded-full animate-breatheText"></div>
+                <span className="text-white text-2xl font-light tracking-wider animate-breatheText">
+                  Hít vào
+                </span>
+                <div className="text-white/40 text-2xl">•</div>
+                <span className="text-white text-2xl font-light tracking-wider animate-breatheText">
+                  Thở ra
+                </span>
+                <div className="w-2 h-2 bg-purple-400 rounded-full animate-breatheText"></div>
+              </div>
+              <div className="text-white/50 text-sm font-light tracking-widest uppercase">
+                Đều đặn và chậm rãi
+              </div>
+            </div>
           </div>
         </div>
 
         {/* Relaxation Tips */}
-        <div className="bg-white/10 rounded-2xl p-6 mb-8 border border-white/20">
+        <div className="bg-white/10 rounded-2xl p-6 mb-6 border border-white/20">
           <h3 className="text-white font-semibold text-lg mb-3 flex items-center gap-2">
             <span>💡</span>
             <span>Hướng dẫn thư giãn:</span>
@@ -217,10 +250,8 @@ export const RelaxationPopup = ({ isOpen, onClose, duration = 180 }: RelaxationP
           loop
           preload="auto"
         >
-          {/* Using a royalty-free relaxation sound URL */}
-          <source src="https://assets.mixkit.co/music/preview/mixkit-relaxing-ambient-piano-582.mp3" type="audio/mpeg" />
-          {/* Fallback to local file if network unavailable */}
-          <source src="/relaxation-music.mp3" type="audio/mpeg" />
+          {/* Using local relaxation music from backend */}
+          <source src="http://localhost:8000/static/music_relax.mp3" type="audio/mpeg" />
         </audio>
       </div>
 
@@ -242,13 +273,22 @@ export const RelaxationPopup = ({ isOpen, onClose, duration = 180 }: RelaxationP
           }
         }
         
-        @keyframes breathe {
+        @keyframes breatheBubble {
           0%, 100% { 
-            transform: scale(1);
-            opacity: 0.5;
+            transform: scale(0.8);
+            opacity: 0.6;
           }
           50% { 
-            transform: scale(1.8);
+            transform: scale(1.2);
+            opacity: 1;
+          }
+        }
+        
+        @keyframes breatheText {
+          0%, 100% { 
+            opacity: 0.7;
+          }
+          50% { 
             opacity: 1;
           }
         }
@@ -261,8 +301,12 @@ export const RelaxationPopup = ({ isOpen, onClose, duration = 180 }: RelaxationP
           animation: scaleIn 0.5s ease-out;
         }
         
-        .animate-breathe {
-          animation: breathe 4s ease-in-out infinite;
+        .animate-breatheBubble {
+          animation: breatheBubble 4s ease-in-out infinite;
+        }
+        
+        .animate-breatheText {
+          animation: breatheText 4s ease-in-out infinite;
         }
       `}</style>
     </div>
