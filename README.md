@@ -26,6 +26,7 @@ cd backend
 python -m venv venv
 venv\Scripts\activate
 pip install -r requirements.txt
+python migrate_db.py 
 python main.py
 ```
 ✅ Backend: http://localhost:8000
